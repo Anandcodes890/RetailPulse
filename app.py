@@ -1,7 +1,10 @@
-import streamlit as st
+import os
 import pandas as pd
-import plotly.express as px
 import numpy as np
+import plotly.express as px
+import streamlit as st
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
 
 # --------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -343,29 +346,30 @@ elif page == "Demand Forecasting":
     )
 
     try:
-        # Load forecast data
-        forecast_df = pd.read_csv("retailpulse_forecast_comparison.csv")
+        # Load the actual CSV files from the project root
+        forecast_path = "retailpulse_forecast_comparison.csv"
+        prophet_path = "retailpulse_prophet_forecast.csv"
 
-        # Required forecast columns:
-        # Prophet, LSTM, Hybrid
-        required_columns = ["Prophet", "LSTM", "Hybrid"]
+        if not os.path.exists(forecast_path):
+            st.error(f"Forecast comparison file not found: {forecast_path}")
+            st.stop()
 
+        forecast_df = pd.read_csv(forecast_path)
+
+        required_columns = ["Actual", "Prophet", "LSTM", "Hybrid"]
         missing_columns = [
             col for col in required_columns
             if col not in forecast_df.columns
         ]
 
         if missing_columns:
-            st.error(
-                f"Missing forecast columns: {missing_columns}"
-            )
+            st.error(f"Missing columns: {missing_columns}")
             st.stop()
 
-        # Convert forecast values to numeric
+        # Convert forecast columns to numeric safely
         for col in required_columns:
             forecast_df[col] = pd.to_numeric(
-                forecast_df[col],
-                errors="coerce"
+                forecast_df[col], errors="coerce"
             )
 
         forecast_df = forecast_df.dropna(
@@ -373,52 +377,55 @@ elif page == "Demand Forecasting":
         ).reset_index(drop=True)
 
         if forecast_df.empty:
-            st.warning("No valid forecast data is available.")
+            st.warning("No valid forecast rows found in the CSV.")
             st.stop()
 
         # -------------------------
-        # Forecast summary metrics
+        # Summary metrics
         # -------------------------
         st.subheader("Forecast Summary")
 
-        col1, col2, col3 = st.columns(3)
+        c1, c2, c3 = st.columns(3)
 
-        with col1:
-            st.metric(
-                "Prophet Average",
-                f"{forecast_df['Prophet'].mean():,.2f}"
-            )
-
-        with col2:
-            st.metric(
-                "LSTM Average",
-                f"{forecast_df['LSTM'].mean():,.2f}"
-            )
-
-        with col3:
-            st.metric(
-                "Hybrid Average",
-                f"{forecast_df['Hybrid'].mean():,.2f}"
-            )
+        c1.metric("Actual Average", f"{forecast_df['Actual'].mean():,.2f}")
+        c2.metric("Prophet Average", f"{forecast_df['Prophet'].mean():,.2f}")
+        c3.metric("Hybrid Average", f"{forecast_df['Hybrid'].mean():,.2f}")
 
         # -------------------------
-        # Forecast comparison
+        # Model evaluation
+        # -------------------------
+        st.subheader("Model Evaluation (MAE / RMSE)")
+
+        actual = forecast_df["Actual"]
+        model_columns = ["Prophet", "LSTM", "Hybrid"]
+        metric_columns = st.columns(3)
+
+        for idx, model in enumerate(model_columns):
+            mae = mean_absolute_error(actual, forecast_df[model])
+            rmse = np.sqrt(
+                mean_squared_error(actual, forecast_df[model])
+            )
+
+            with metric_columns[idx]:
+                st.write(f"**{model}**")
+                st.metric("MAE", f"{mae:,.2f}")
+                st.metric("RMSE", f"{rmse:,.2f}")
+
+        # -------------------------
+        # Forecast comparison graph
         # -------------------------
         st.subheader("Forecast Comparison")
 
-        comparison_df = forecast_df[
-            ["Prophet", "LSTM", "Hybrid"]
+        chart_df = forecast_df[
+            ["Actual", "Prophet", "LSTM", "Hybrid"]
         ].copy()
-
-        comparison_df["Observation"] = range(
-            1, len(comparison_df) + 1
-        )
+        chart_df["Observation"] = range(1, len(chart_df) + 1)
 
         fig_comparison = px.line(
-            comparison_df,
+            chart_df,
             x="Observation",
-            y=["Prophet", "LSTM", "Hybrid"],
-            title="Prophet vs LSTM vs Hybrid Forecast",
+            y=["Actual", "Prophet", "LSTM", "Hybrid"],
+            title="Actual vs Prophet vs LSTM vs Hybrid",
             template="plotly_dark"
         )
 
@@ -429,94 +436,40 @@ elif page == "Demand Forecasting":
         )
 
         # -------------------------
-        # Model evaluation metrics
-        # -------------------------
-        st.subheader("Model Evaluation")
-
-        # If actual values are available, calculate MAE and RMSE.
-        actual_column = "Actual"
-
-        if actual_column in forecast_df.columns:
-            actual = pd.to_numeric(
-                forecast_df[actual_column],
-                errors="coerce"
-            )
-
-            valid = actual.notna()
-
-            if valid.any():
-                metric_cols = st.columns(3)
-
-                for idx, model in enumerate(
-                    ["Prophet", "LSTM", "Hybrid"]
-                ):
-                    predicted = forecast_df.loc[
-                        valid, model
-                    ]
-                    actual_valid = actual.loc[valid]
-
-                    mae = mean_absolute_error(
-                        actual_valid, predicted
-                    )
-                    rmse = np.sqrt(
-                        mean_squared_error(
-                            actual_valid, predicted
-                        )
-                    )
-
-                    with metric_cols[idx]:
-                        st.write(f"**{model}**")
-                        st.metric("MAE", f"{mae:,.2f}")
-                        st.metric("RMSE", f"{rmse:,.2f}")
-            else:
-                st.info(
-                    "Actual values are unavailable for model evaluation."
-                )
-        else:
-            st.info(
-                "Add an 'Actual' column to calculate MAE and RMSE."
-            )
-
-        # -------------------------
-        # Demand change alerts
+        # Demand alerts
         # -------------------------
         st.subheader("Demand Change Alerts")
 
-        hybrid = forecast_df["Hybrid"]
+        first_value = float(forecast_df["Hybrid"].iloc[0])
+        last_value = float(forecast_df["Hybrid"].iloc[-1])
 
-        if len(hybrid) >= 2:
-            first_value = float(hybrid.iloc[0])
-            last_value = float(hybrid.iloc[-1])
+        if first_value != 0:
+            change_pct = (
+                (last_value - first_value) / abs(first_value)
+            ) * 100
+        else:
+            change_pct = 0.0
 
-            if first_value != 0:
-                change_pct = (
-                    (last_value - first_value)
-                    / abs(first_value)
-                ) * 100
-            else:
-                change_pct = 0.0
-
-            if change_pct >= 10:
-                st.success(
-                    f"📈 Forecast demand increases by "
-                    f"{change_pct:.2f}% across the forecast period."
-                )
-            elif change_pct <= -10:
-                st.warning(
-                    f"📉 Forecast demand decreases by "
-                    f"{abs(change_pct):.2f}% across the forecast period."
-                )
-            else:
-                st.info(
-                    f"Forecast demand is relatively stable "
-                    f"({change_pct:.2f}% change)."
-                )
+        if change_pct >= 10:
+            st.success(
+                f"📈 Hybrid forecast increased by {change_pct:.2f}% "
+                "from the first to the last observation."
+            )
+        elif change_pct <= -10:
+            st.warning(
+                f"📉 Hybrid forecast decreased by {abs(change_pct):.2f}% "
+                "from the first to the last observation."
+            )
+        else:
+            st.info(
+                f"Hybrid forecast is relatively stable: "
+                f"{change_pct:.2f}% change."
+            )
 
         # -------------------------
         # What-if demand analysis
         # -------------------------
         st.subheader("What-if Demand Analysis")
-
         st.write(
             "Adjust expected demand to simulate an alternative scenario."
         )
@@ -531,12 +484,8 @@ elif page == "Demand Forecasting":
         )
 
         what_if_df = pd.DataFrame({
-            "Observation": range(
-                1, len(forecast_df) + 1
-            ),
-            "Hybrid Forecast": forecast_df[
-                "Hybrid"
-            ].to_numpy()
+            "Observation": range(1, len(forecast_df) + 1),
+            "Hybrid Forecast": forecast_df["Hybrid"].to_numpy()
         })
 
         what_if_df["What-if Forecast"] = (
@@ -573,30 +522,66 @@ elif page == "Demand Forecasting":
         # -------------------------
         # Forecast data tables
         # -------------------------
-        st.subheader("Forecast Data")
-
+        st.subheader("Forecast Comparison Data")
         st.dataframe(
             forecast_df,
             use_container_width=True
         )
 
         st.subheader("What-if Scenario Data")
-
         st.dataframe(
             what_if_df,
             use_container_width=True
         )
 
-    except FileNotFoundError as e:
-        st.error(
-            "Forecast data file was not found. "
-            "Check the CSV file path in your project."
-        )
-        st.code(str(e))
+        # -------------------------
+        # Prophet detailed forecast (optional)
+        # -------------------------
+        if os.path.exists(prophet_path):
+            prophet_df = pd.read_csv(prophet_path)
+
+            if "ds" in prophet_df.columns and "yhat" in prophet_df.columns:
+                prophet_df["ds"] = pd.to_datetime(
+                    prophet_df["ds"], errors="coerce"
+                )
+                prophet_df["yhat"] = pd.to_numeric(
+                    prophet_df["yhat"], errors="coerce"
+                )
+
+                prophet_df = prophet_df.dropna(
+                    subset=["ds", "yhat"]
+                )
+
+                if not prophet_df.empty:
+                    st.subheader("Detailed Prophet Forecast")
+
+                    fig_prophet = px.line(
+                        prophet_df,
+                        x="ds",
+                        y="yhat",
+                        title="Prophet Predicted Demand",
+                        labels={
+                            "ds": "Date",
+                            "yhat": "Predicted Demand"
+                        },
+                        template="plotly_dark"
+                    )
+
+                    st.plotly_chart(
+                        fig_prophet,
+                        use_container_width=True,
+                        key="prophet_detail_chart"
+                    )
+        else:
+            st.info(
+                "Detailed Prophet forecast file is unavailable; "
+                "comparison forecast remains available."
+            )
 
     except Exception as e:
-        st.error("Could not load forecasting data.")
-        st.code(str(e))
+        st.error("Could not load Demand Forecasting data.")
+        st.exception(e)
+
 
 # --------------------------------------------------
 # 10. CHURN ANALYSIS PAGE
