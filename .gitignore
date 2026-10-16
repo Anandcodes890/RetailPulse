@@ -15,7 +15,7 @@ mlflow.db
 
 # Large source and processed datasets
 online_retail_II.xlsx
-retailpulse_cleaned.csv
+
 
 # Generated data and reports
 retailpulse_churn_results.csv
