@@ -20,13 +20,12 @@ online_retail_II.xlsx
 # Generated data and reports
 retailpulse_churn_results.csv
 retailpulse_churn_summary.csv
-retailpulse_clusters.csv
-retailpulse_cluster_summary.csv
+
 retailpulse_feature_importance.csv
 retailpulse_forecast_comparison.csv
 retailpulse_inventory_summary.csv
 retailpulse_monitoring_summary.csv
 retailpulse_prophet_forecast.csv
-retailpulse_rfm.csv
+
 retailpulse_churn_model.pkl
 terminal_commands.txt
