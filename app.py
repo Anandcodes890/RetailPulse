@@ -344,7 +344,7 @@ elif page == "Demand Forecasting":
 
     try:
         # Load forecast data
-        forecast_df = pd.read_csv("data/forecast_results.csv")
+        forecast_df = pd.read_csv("retailpulse_forecast_comparison.csv")
 
         # Required forecast columns:
         # Prophet, LSTM, Hybrid
